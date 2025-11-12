@@ -1,198 +1,203 @@
-const User = require('../models/User_Collection');
-const { comparePassword } = require('../middleware/bcrypt');
-const { hashPassword } = require('../middleware/bcrypt');
-const { generateToken ,verifyToken} = require("../middleware/jwt");
-const nodemailer = require('nodemailer');
-const mongoose = require('mongoose');
-const dotenv = require("dotenv");
+import dotenv from "dotenv";
+import mongoose from "mongoose";
+import nodemailer from "nodemailer";
+import { OAuth2Client } from "google-auth-library";
+import { User } from "../models/User_Collection.js";
+import { comparePassword, hashPassword } from "../middleware/bcrypt.js";
+import { generateToken, verifyToken } from "../middleware/jwt.js";
 
 dotenv.config();
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
-
+// SIGN IN
 // ---------------------------------------------------------------------------------------------------------------------------------------
 const signIn = async (req, res) => {
   console.log("entered signin POST form read");
-  const { email, password } = req.body;
+  const { email, password, type } = req.body;
 
   try {
-    const user = await User.findOne({ email: email });
-    
-    if (user) {
-      const isMatch = await comparePassword(password, user.pass);
-      if (isMatch) {
-        const dbName = email.replace(/[@.]/g, '_');
-        var token = generateToken(dbName);
-        res.cookie("db", token, {
-            httpOnly: true,
-              secure: process.env.NODE_ENV === "production",
-              sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-              maxAge: 15 * 24 * 60 * 60 * 1000 // 15 days
-          });
-        
-        res.json({ success: true, email: user.email });
-      } 
-      else {
-        res.json({ success: false, message: 'Invalid password' });
+    if (type === "User") {
+      // Future implementation for customers
+      return res.json({ success: false, message: "User login not implemented yet" });
+    } 
+    else if (type === "Owner" || type === "Manager") {
+      const user = await User.findOne({ email });
+      if (!user) return res.json({ success: false, message: "Email not found" });
+
+      if (user.role !== type.toLowerCase()) {
+        return res.json({ success: false, message: `This account is not registered as ${type}` });
       }
-    } else {
-      res.json({ success: false, message: "Can't find email" });
+
+      const isMatch = await comparePassword(password, user.password);
+      if (!isMatch) return res.json({ success: false, message: "Invalid password" });
+
+      const payload = { email, email_id: user._id, type };
+      const token = await generateToken(payload);
+
+      return res.json({
+        success: true,
+        message: `${type} login successful`,
+        token,
+      });
+    } 
+    else {
+      return res.json({ success: false, message: "Invalid user type" });
     }
   } catch (err) {
-    console.error('Error during signin:', err);
-    res.status(500).json({ success: false, message: 'Internal Server Error' });
+    console.error("Error during signin:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
-
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// LOGOUT
 // ---------------------------------------------------------------------------------------------------------------------------------------
 const logout = async (req, res) => {
   console.log("logout encountered");
-  res.clearCookie("db", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-  });
-  res.json({ success: true, message: "Logged out successfully" });
+  return res.json({ success: true, message: "Logged out successfully" });
 };
 
-
 // ---------------------------------------------------------------------------------------------------------------------------------------
+// CHECK USER EXISTS
 // ---------------------------------------------------------------------------------------------------------------------------------------
-
 const user_exists = async (req, res) => {
   console.log("inside userExists route");
   const { email } = req.body;
 
   try {
-    const user = await User.findOne({ email: email });
-
+    const user = await User.findOne({ email });
     if (user) {
       console.log("user exists");
-      return res.status(400).json({ message: 'Email is already registered.' });
+      return res.status(400).json({ message: "Email is already registered." });
     }
     console.log("user not registered");
-    return res.status(200).json({message:'continue'});
-  }
-  catch (err) {
-    console.error('Error during registration:', err);
-    res.status(500).send('Internal Server Error');
+    return res.status(200).json({ message: "continue" });
+  } catch (err) {
+    console.error("Error during registration:", err);
+    res.status(500).send("Internal Server Error");
   }
 };
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
-
+// GENERATE OTP
+// ---------------------------------------------------------------------------------------------------------------------------------------
 const generate_otp = async (req, res) => {
   console.log("inside generateotp route");
   const { email, text } = req.body;
-  console.log("email is "+email);
-  console.log("text is "+text);
 
   function generateOTP() {
-    const otp = Math.floor(100000 + Math.random() * 900000);
-    return otp.toString();
+    return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
   const otp = generateOTP();
-  
-  console.log("otp is:" + otp);
-  const otp_token = generateToken(otp);
-  res.cookie("otp", otp_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "Strict",
-      maxAge: 604800000
+  console.log(`Generated OTP: ${otp}`);
+
+  const otp_token = generateToken({ otp });
+  await sendEmail({
+    to: email,
+    subject: "Your SmartFeast OTP",
+    text: `${otp}  ${text}\nDo not share this code with anyone.`,
   });
 
-    await sendEmail({
-        to: email,
-        subject: 'Your smartFeast OTP',
-        text: `${otp}  ${text}\nDo not share with anybody`,
-      });
-
+  return res.status(200).json({
+    success: true,
+    message: "OTP sent successfully",
+    token: otp_token, // Send token to frontend (store temporarily)
+  });
+};
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
+// VERIFY OTP
+// ---------------------------------------------------------------------------------------------------------------------------------------
+const verify_otp = (req, res) => {
+  console.log("inside verify_otp");
+  const { otp, token } = req.body;
 
-const verify_otp = (req,res) => {
-  const otpval = req.body.otp;
-  console.log('recieved otp is '+otpval);
-  const otp_json = verifyToken(req.cookies.otp);
-  console.log("cookies accept");
-  console.log(otp_json.userId);
-  if (!otp_json) {
-    return res.status(400).json({ error: "Invalid or expired OTP" });
-  }
-  console.log(otp_json.userId);
-  if(otp_json.userId == otpval){
-    console.log("otp is correct");
-    res.status(200).json({message : 'otp is correct'});
-  }
-  else {
-    console.log("otp is not correct");
-    res.status(400).json({message : 'The provided OTP is incorrect. Please try again.'});
+  try {
+    const decoded = verifyToken(token);
+    if (!decoded || !decoded.otp) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    }
+
+    if (decoded.otp === otp) {
+      console.log("OTP verified successfully");
+      return res.status(200).json({ success: true, message: "OTP is correct" });
+    } else {
+      console.log("OTP mismatch");
+      return res.status(400).json({ success: false, message: "Incorrect OTP. Please try again." });
+    }
+  } catch (err) {
+    console.error("Error verifying OTP:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
-
+// SIGN UP
+// ---------------------------------------------------------------------------------------------------------------------------------------
 const signUp = async (req, res) => {
   console.log("in signup POST read");
-  const { email, password } = req.body;
+  const { email, password, type } = req.body;
 
   try {
-    const hashedPassword = await hashPassword(password);
-    const newUser = new User({ email: email, pass: hashedPassword });
-    
-    const dbName = email.replace(/[@.]/g, '_');
-    try {
-      const db = mongoose.connection.db;
-      const collection = db.collection(dbName);
-      await collection.insertOne({ message: "Collection created successfully!" });
-      console.log(`Collection '${dbName}' created and document inserted.`);
-    } catch (error) {
-      console.error("Error creating collection:", error);
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: "Email already registered" });
     }
-    
-    await newUser.save();
-    var token = generateToken(dbName);
-    res.cookie("db", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-        maxAge: 15 * 24 * 60 * 60 * 1000 // 15 days
+
+    const hashedPassword = await hashPassword(password);
+    const newUser = new User({
+      email,
+      password: hashedPassword,
+      role: type.toLowerCase(),
     });
-    
-    res.json({ email: newUser.email, message: 'Registration successful, please login' });
+
+    await newUser.save();
+
+    const payload = { email, email_id: newUser._id, type };
+    const token = await generateToken(payload);
+
+    return res.status(201).json({
+      success: true,
+      message: `${type} registration successful`,
+      token,
+    });
   } catch (err) {
-    console.error('Error during registration:', err);
-    res.status(500).send('Internal Server Error');
+    console.error("Error during registration:", err);
+    res.status(500).send("Internal Server Error");
   }
 };
 
-
 // ---------------------------------------------------------------------------------------------------------------------------------------
-
-const reset_password = async (req,res) => {
+// RESET PASSWORD
+// ---------------------------------------------------------------------------------------------------------------------------------------
+const reset_password = async (req, res) => {
   const { email, password } = req.body;
   try {
-    const user = await User.findOne({email});
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
     const hashedPassword = await hashPassword(password);
-    user.pass = hashedPassword;
+    user.password = hashedPassword;
     await user.save();
-    res.status(200).json({ message: 'Password reset successful' });
+
+    return res.status(200).json({ message: "Password reset successful" });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: "Server error" });
   }
-}
+};
 
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// AUTH CHECK
 // ---------------------------------------------------------------------------------------------------------------------------------------
 const is_Authenticated = async (req, res) => {
   console.log("inside Authentication");
+  const { token } = req.body;
   try {
-    const token = verifyToken(req.cookies.db);
-    if (token) {
-      return res.status(200).json({ authenticated: true });
+    const decoded = verifyToken(token);
+    if (decoded) {
+      return res.status(200).json({ authenticated: true, data: decoded });
     } else {
       return res.status(401).json({ authenticated: false, message: "Invalid token" });
     }
@@ -200,21 +205,21 @@ const is_Authenticated = async (req, res) => {
     return res.status(401).json({ authenticated: false, message: "Authentication failed" });
   }
 };
-// ---------------------------------------------------------------------------------------------------------------------------------------
 
-const { OAuth2Client } = require("google-auth-library");
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// GOOGLE SIGN-IN
+// ---------------------------------------------------------------------------------------------------------------------------------------
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const google_signin = async (req, res) => {
   console.log("inside google signin");
   try {
-    const { credential } = req.body;
+    const { credential, type } = req.body;
 
     if (!credential) {
       return res.status(400).json({ message: "Google credential is required" });
     }
 
-    // Verify the Google token
     const ticket = await client.verifyIdToken({
       idToken: credential,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -229,51 +234,27 @@ const google_signin = async (req, res) => {
     let user = await User.findOne({ email });
 
     if (!user) {
-      // If user doesn't exist, create a new user record (excluding password)
-      user = new User({ email });
+      user = new User({ email, role: type.toLowerCase() });
       await user.save();
-
-      // Create a dedicated collection for the user
-      const dbName = email.replace(/[@.]/g, '_');
-      try {
-        const db = mongoose.connection.db;
-        const collection = db.collection(dbName);
-        await collection.insertOne({ message: "Collection created successfully!" });
-        console.log(`Collection '${dbName}' created and document inserted.`);
-      } catch (error) {
-        console.error("Error creating collection:", error);
-      }
     }
 
-    // Generate token for DB access
-    const dbName = email.replace(/[@.]/g, '_');
-    var token = generateToken(dbName);
-
-    // Set db token cookie
-    res.cookie("db", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
-      maxAge: 15 * 24 * 60 * 60 * 1000, // 15 days
-    });
-    
+    const jwtPayload = { email, email_id: user._id, type };
+    const token = await generateToken(jwtPayload);
 
     return res.status(200).json({
       success: true,
-      token: credential,
+      token,
       user: { _id: googleId, email, name, picture },
-      message: "Google sign-in successful",
+      message: `${type} Google sign-in successful`,
     });
-
   } catch (error) {
     console.error("Google authentication error:", error);
     return res.status(500).json({ success: false, message: "Server error during authentication" });
   }
 };
 
-
 // ---------------------------------------------------------------------------------------------------------------------------------------
-module.exports = {
+export {
   signIn,
   signUp,
   logout,
@@ -282,5 +263,5 @@ module.exports = {
   verify_otp,
   reset_password,
   is_Authenticated,
-  google_signin
+  google_signin,
 };
