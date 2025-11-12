@@ -20,7 +20,7 @@ const UserSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['owner', 'manager'],
+      enum: ['owner', 'manager', 'user'],
       required: true,
     },
     ownedRestaurants: [

@@ -2,8 +2,8 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import nodemailer from "nodemailer";
 import { OAuth2Client } from "google-auth-library";
-import { User } from "../models/User_Collection.js";
-import { comparePassword, hashPassword } from "../middleware/bcrypt.js";
+import { User } from "../models/User.js";
+import { comparePassword, hashPassword } from "../middlewear/bcrypt.js";
 import { generateToken, verifyToken } from "../middleware/jwt.js";
 
 dotenv.config();
@@ -31,9 +31,20 @@ const signIn = async (req, res) => {
       const isMatch = await comparePassword(password, user.password);
       if (!isMatch) return res.json({ success: false, message: "Invalid password" });
 
-      const payload = { email, email_id: user._id, type };
-      const token = await generateToken(payload);
-
+      // Get user's restaurants and outlets for token payload
+      const userWithRelations = await User.findById(user._id)
+        .populate('ownedRestaurants')
+        .populate('managedOutlets');
+      
+      const payload = { 
+        userId: user._id,
+        email, 
+        type: type.toLowerCase(),
+        ownedRestaurants: userWithRelations.ownedRestaurants.map(r => r._id),
+        managedOutlets: userWithRelations.managedOutlets.map(o => o._id)
+      };
+      const token = generateToken(payload);
+      console.log("Token generated:", token);
       return res.json({
         success: true,
         message: `${type} login successful`,
@@ -41,6 +52,7 @@ const signIn = async (req, res) => {
       });
     } 
     else {
+      console.log("Invalid user type");
       return res.json({ success: false, message: "Invalid user type" });
     }
   } catch (err) {
@@ -137,34 +149,64 @@ const verify_otp = (req, res) => {
 // ---------------------------------------------------------------------------------------------------------------------------------------
 const signUp = async (req, res) => {
   console.log("in signup POST read");
-  const { email, password, type } = req.body;
+  const { name, email, password, type } = req.body;
 
   try {
+    // Validate input
+    if (!email || !password || !type) {
+      return res.status(400).json({ success: false, message: "Email, password, and type are required" });
+    }
+
+    // Validate type
+    const validTypes = ['owner', 'manager', 'user'];
+    const normalizedType = type.toLowerCase();
+    if (!validTypes.includes(normalizedType)) {
+      return res.status(400).json({ success: false, message: "Invalid user type. Must be Owner, Manager, or User" });
+    }
+
+    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ success: false, message: "Email already registered" });
     }
 
+    // Hash password
     const hashedPassword = await hashPassword(password);
+
+    // Create new user
     const newUser = new User({
+      name: name || email.split('@')[0], // Use provided name or default from email
       email,
       password: hashedPassword,
-      role: type.toLowerCase(),
+      role: normalizedType,
     });
 
     await newUser.save();
 
-    const payload = { email, email_id: newUser._id, type };
-    const token = await generateToken(payload);
+    // Generate token with user info
+    const payload = { 
+      userId: newUser._id,
+      email, 
+      type: normalizedType,
+      ownedRestaurants: [],
+      managedOutlets: []
+    };
+    const token = generateToken(payload);
 
     return res.status(201).json({
       success: true,
       message: `${type} registration successful`,
       token,
+      user: {
+        userId: newUser._id,
+        email: newUser.email,
+        name: newUser.name,
+        type: normalizedType,
+      }
     });
   } catch (err) {
     console.error("Error during registration:", err);
-    res.status(500).send("Internal Server Error");
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
@@ -238,8 +280,18 @@ const google_signin = async (req, res) => {
       await user.save();
     }
 
-    const jwtPayload = { email, email_id: user._id, type };
-    const token = await generateToken(jwtPayload);
+    const userWithRelations = await User.findById(user._id)
+      .populate('ownedRestaurants')
+      .populate('managedOutlets');
+    
+    const jwtPayload = { 
+      userId: user._id,
+      email, 
+      type: type.toLowerCase(),
+      ownedRestaurants: userWithRelations.ownedRestaurants.map(r => r._id),
+      managedOutlets: userWithRelations.managedOutlets.map(o => o._id)
+    };
+    const token = generateToken(jwtPayload);
 
     return res.status(200).json({
       success: true,
