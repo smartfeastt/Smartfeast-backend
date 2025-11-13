@@ -13,16 +13,16 @@ import { authMiddleware } from "../middleware/middleware.js";
 const router = express.Router();
 
 // Public routes (more specific routes first)
-router.get("/view/:restaurantName/:outletName", getItemsByOutletName); // /view/restaurantname/outletname
+router.get("/view/:restaurantName/:outletName", authMiddleware,getItemsByOutletName); // /view/restaurantname/outletname
 router.get("/outlet/:outletId",authMiddleware, getItemsByOutlet); // ?token=xxx (optional)
 
 // Owner/Manager routes
-router.post("/create", createItem);
-router.put("/update/:itemId", updateItem);
-router.delete("/delete/:itemId", deleteItem);
-router.put("/:itemId/photo", updateItemPhoto); // Update photo URL after upload
+router.post("/create", authMiddleware,createItem);
+router.put("/update/:itemId", authMiddleware,updateItem);
+router.delete("/delete/:itemId",authMiddleware,deleteItem);
+router.put("/:itemId/photo", authMiddleware,updateItemPhoto); // Update photo URL after upload
 
 // Get single item (must be last to avoid conflicts)
-router.get("/:itemId", getItemById);
+router.get("/:itemId",authMiddleware,getItemById);
 
 export default router;

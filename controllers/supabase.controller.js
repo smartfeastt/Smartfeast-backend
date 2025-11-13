@@ -8,7 +8,7 @@ const sanitizeFileName = (filename) => {
 
 
 const signedUrl = async (req, res) => {
-    var { fileName, contentType } = req.body;
+    var { fileName } = req.body;
     const timestamp = Date.now();
     fileName = `${timestamp}-${sanitizeFileName(fileName)}`;
     const { data, error } = await supabase

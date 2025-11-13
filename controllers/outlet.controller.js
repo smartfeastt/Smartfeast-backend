@@ -175,11 +175,8 @@ const deleteOutlet = async (req, res) => {
 const getOutletById = async (req, res) => {
   try {
     const { outletId } = req.params;
-
-    const outlet = await Outlet.findById(outletId)
-      .populate('restaurantId', 'name ownerId')
-      .populate('managers', 'name email')
-      .populate('menuIds');
+    console.log("inside outlet by id");
+    const outlet = await Outlet.findById(outletId);
 
     if (!outlet) {
       return res.status(404).json({ success: false, message: "Outlet not found" });

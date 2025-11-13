@@ -11,7 +11,7 @@ import mongoose from "mongoose";
  */
 const createItem = async (req, res) => {
   try {
-    const { token, outletId, itemName, itemPrice, itemQuantity, itemDescription, category, isAvailable, fileName, contentType } = req.body;
+    const { token, outletId, itemName, itemPrice, itemQuantity, itemDescription, category, isAvailable } = req.body;
 
     if (!token || !outletId || !itemName || !itemPrice) {
       return res.status(400).json({ success: false, message: "Token, outletId, itemName, and itemPrice are required" });
@@ -51,33 +51,34 @@ const createItem = async (req, res) => {
 
     await newItem.save();
 
+
     // Generate signed URL using the item ID
     let signedUrlData = null;
-    if (fileName && contentType) {
-      const sanitizeFileName = (filename) => {
-        return filename.replace(/[^a-zA-Z0-9._-]/g, '-');
+      
+    const itemId = newItem._id.toString();
+
+    console.log("item saved"+itemId);
+    const path = `menu-items/${itemId}`;
+    
+    const { data, error } = await supabase
+      .storage
+      .from('smartfeast')
+      .createSignedUploadUrl(path, 60); // valid for 60 seconds
+
+    if (error) {
+      console.error('Supabase storage error:', error);
+      // Continue without photo URL
+    } else {
+      signedUrlData = {
+        signedUrl: data.signedUrl,
+        path: path,
       };
-      
-      const itemId = newItem._id.toString();
-      const sanitizedFileName = sanitizeFileName(fileName);
-      const path = `menu-items/${itemId}-${sanitizedFileName}`;
-      
-      const { data, error } = await supabase
-        .storage
-        .from('printease')
-        .createSignedUploadUrl(path, 60); // valid for 60 seconds
-
-      if (error) {
-        console.error('Supabase storage error:', error);
-        // Continue without photo URL
-      } else {
-        signedUrlData = {
-          signedUrl: data.signedUrl,
-          path: path,
-        };
-      }
+      const fullUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/smartfeast/${path}`;
+      newItem.itemPhoto = fullUrl;
+      await newItem.save();
     }
-
+    
+    console.log("function success"+signedUrlData);
     return res.status(201).json({
       success: true,
       message: "Menu item created successfully",
@@ -255,8 +256,8 @@ const getItemsByOutlet = async (req, res) => {
   console.log("getItemsByOutlet controller");
   try {
     const { outletId } = req.params;
-    const { user } = req.body;
-
+    const { user } = req;
+    console.log(user);
     if (!user) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }

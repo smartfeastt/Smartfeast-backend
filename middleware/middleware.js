@@ -13,6 +13,7 @@ export const authMiddleware = (req, res, next) => {
 
     // Use your existing jwt.js verify function
     const decoded = verifyToken(token);
+    console.log("Decoded token:", JSON.stringify(decoded, null, 2));
 
     // Attach to req (so controller can access)
     req.user = decoded;
