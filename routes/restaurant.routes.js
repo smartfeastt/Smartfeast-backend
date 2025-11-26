@@ -7,11 +7,13 @@ import {
   getRestaurantById,
   getRestaurantByName,
   getOwnerRestaurants,
+  getAllRestaurants,
 } from "../controllers/restaurant.controller.js";
 
 const router = express.Router();
 
 // Public routes
+router.get("/all", getAllRestaurants); // Get all restaurants for customers
 router.get("/name/:restaurantName", getRestaurantByName); // /view/restaurantname
 router.get("/:restaurantId", getRestaurantById);
 

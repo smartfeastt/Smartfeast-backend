@@ -3,6 +3,7 @@ import authRoutes from "./routes/auth.routes.js";
 import restaurantRoutes from "./routes/restaurant.routes.js";
 import outletRoutes from "./routes/outlet.routes.js";
 import itemRoutes from "./routes/item.routes.js";
+import categoryRoutes from "./routes/category.routes.js";
 import supabaseRoutes from "./routes/supabase.routes.js";
 import supabase from './config/supabase.config.js';
 
@@ -19,6 +20,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/restaurant", restaurantRoutes);
 app.use("/api/outlet", outletRoutes);
 app.use("/api/item", itemRoutes);
+app.use("/api/category", categoryRoutes);
 app.use("/api/supabase", supabaseRoutes);
 
 // Health check

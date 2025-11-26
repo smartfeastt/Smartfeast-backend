@@ -17,8 +17,29 @@ const signIn = async (req, res) => {
 
   try {
     if (type === "User") {
-      // Future implementation for customers
-      return res.json({ success: false, message: "User login not implemented yet" });
+      const user = await User.findOne({ email });
+      if (!user) return res.json({ success: false, message: "Email not found" });
+
+      if (user.role !== 'user') {
+        return res.json({ success: false, message: `This account is not registered as User` });
+      }
+
+      const isMatch = await comparePassword(password, user.password);
+      if (!isMatch) return res.json({ success: false, message: "Invalid password" });
+
+      const payload = { 
+        userId: user._id,
+        email, 
+        type: 'user',
+        name: user.name
+      };
+      const token = generateToken(payload);
+      
+      return res.json({
+        success: true,
+        message: "User login successful",
+        token,
+      });
     } 
     else if (type === "Owner" || type === "Manager") {
       const user = await User.findOne({ email });

@@ -206,6 +206,23 @@ const getOwnerRestaurants = async (req, res) => {
   }
 };
 
+/**
+ * 🌐 Get All Restaurants (Public endpoint for customers)
+ */
+const getAllRestaurants = async (req, res) => {
+  try {
+    const restaurants = await Restaurant.find({})
+      .populate('outlets', 'name location')
+      .populate('ownerId', 'name')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({ success: true, restaurants });
+  } catch (error) {
+    console.error("Error fetching all restaurants:", error);
+    return res.status(500).json({ success: false, message: "Server error while fetching restaurants" });
+  }
+};
+
 // ✅ Export all
 export {
   createRestaurant,
@@ -214,4 +231,5 @@ export {
   getRestaurantById,
   getRestaurantByName,
   getOwnerRestaurants,
+  getAllRestaurants,
 };
