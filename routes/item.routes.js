@@ -13,7 +13,7 @@ import { authMiddleware } from "../middleware/middleware.js";
 const router = express.Router();
 
 // Public routes (more specific routes first)
-router.get("/view/:restaurantName/:outletName", authMiddleware,getItemsByOutletName); // /view/restaurantname/outletname
+router.get("/view/:restaurantName/:outletName", getItemsByOutletName); // Public - /view/restaurantname/outletname
 router.get("/outlet/:outletId",authMiddleware, getItemsByOutlet); // ?token=xxx (optional)
 
 // Owner/Manager routes

@@ -10,7 +10,6 @@ const UserSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      unique: true,
       lowercase: true,
       trim: true,
     },
@@ -41,6 +40,10 @@ const UserSchema = new mongoose.Schema(
     collection: 'Users',
   }
 );
+
+// Compound unique index: one email can have multiple roles
+// This allows the same email to exist with different roles (user, owner, manager)
+UserSchema.index({ email: 1, role: 1 }, { unique: true, name: 'email_1_role_1' });
 
 const User = mongoose.models.User || mongoose.model('User', UserSchema);
 export { User };

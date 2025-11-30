@@ -16,17 +16,47 @@ const signIn = async (req, res) => {
   const { email, password, type } = req.body;
 
   try {
-    if (type === "User") {
-      const user = await User.findOne({ email });
-      if (!user) return res.json({ success: false, message: "Email not found" });
+    const normalizedType = type.toLowerCase();
+    
+    // Find user by email AND role (allows same email with different roles)
+    const user = await User.findOne({ email, role: normalizedType });
+    
+    if (!user) {
+      return res.json({ 
+        success: false, 
+        message: `Email not registered as ${type}. Please sign up first.` 
+      });
+    }
 
-      if (user.role !== 'user') {
-        return res.json({ success: false, message: `This account is not registered as User` });
-      }
+    const isMatch = await comparePassword(password, user.password);
+    if (!isMatch) {
+      return res.json({ success: false, message: "Invalid password" });
+    }
 
-      const isMatch = await comparePassword(password, user.password);
-      if (!isMatch) return res.json({ success: false, message: "Invalid password" });
-
+    // For Owner/Manager, get restaurants and outlets
+    if (normalizedType === 'owner' || normalizedType === 'manager') {
+      const userWithRelations = await User.findById(user._id)
+        .populate('ownedRestaurants')
+        .populate('managedOutlets');
+      
+      const payload = { 
+        userId: user._id,
+        email, 
+        type: normalizedType,
+        name: user.name,
+        ownedRestaurants: userWithRelations.ownedRestaurants.map(r => r._id),
+        managedOutlets: userWithRelations.managedOutlets.map(o => o._id)
+      };
+      const token = generateToken(payload);
+      
+      return res.json({
+        success: true,
+        message: `${type} login successful`,
+        token,
+      });
+    } 
+    // For User
+    else if (normalizedType === 'user') {
       const payload = { 
         userId: user._id,
         email, 
@@ -38,37 +68,6 @@ const signIn = async (req, res) => {
       return res.json({
         success: true,
         message: "User login successful",
-        token,
-      });
-    } 
-    else if (type === "Owner" || type === "Manager") {
-      const user = await User.findOne({ email });
-      if (!user) return res.json({ success: false, message: "Email not found" });
-
-      if (user.role !== type.toLowerCase()) {
-        return res.json({ success: false, message: `This account is not registered as ${type}` });
-      }
-
-      const isMatch = await comparePassword(password, user.password);
-      if (!isMatch) return res.json({ success: false, message: "Invalid password" });
-
-      // Get user's restaurants and outlets for token payload
-      const userWithRelations = await User.findById(user._id)
-        .populate('ownedRestaurants')
-        .populate('managedOutlets');
-      
-      const payload = { 
-        userId: user._id,
-        email, 
-        type: type.toLowerCase(),
-        ownedRestaurants: userWithRelations.ownedRestaurants.map(r => r._id),
-        managedOutlets: userWithRelations.managedOutlets.map(o => o._id)
-      };
-      const token = generateToken(payload);
-      console.log("Token generated:", token);
-      return res.json({
-        success: true,
-        message: `${type} login successful`,
         token,
       });
     } 
@@ -95,13 +94,22 @@ const logout = async (req, res) => {
 // ---------------------------------------------------------------------------------------------------------------------------------------
 const user_exists = async (req, res) => {
   console.log("inside userExists route");
-  const { email } = req.body;
+  const { email, type } = req.body;
 
   try {
-    const user = await User.findOne({ email });
+    // Check if user exists with this email and role combination
+    const normalizedType = type ? type.toLowerCase() : null;
+    const query = normalizedType 
+      ? { email, role: normalizedType }
+      : { email };
+    
+    const user = await User.findOne(query);
     if (user) {
       console.log("user exists");
-      return res.status(400).json({ message: "Email is already registered." });
+      const message = normalizedType 
+        ? `Email is already registered as ${type}.`
+        : "Email is already registered.";
+      return res.status(400).json({ message });
     }
     console.log("user not registered");
     return res.status(200).json({ message: "continue" });
@@ -185,10 +193,10 @@ const signUp = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid user type. Must be Owner, Manager, or User" });
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    // Check if user with this email and role already exists
+    const existingUser = await User.findOne({ email, role: normalizedType });
     if (existingUser) {
-      return res.status(400).json({ success: false, message: "Email already registered" });
+      return res.status(400).json({ success: false, message: `Email already registered as ${type}` });
     }
 
     // Hash password
@@ -294,10 +302,18 @@ const google_signin = async (req, res) => {
     }
 
     const { sub: googleId, email, name, picture } = payload;
-    let user = await User.findOne({ email });
+    const normalizedType = type.toLowerCase();
+    
+    // Find user by email AND role (allows same email with different roles)
+    let user = await User.findOne({ email, role: normalizedType });
 
     if (!user) {
-      user = new User({ email, role: type.toLowerCase() });
+      user = new User({ 
+        email, 
+        role: normalizedType,
+        name: name || email.split('@')[0],
+        password: '' // Google auth doesn't need password
+      });
       await user.save();
     }
 
