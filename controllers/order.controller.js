@@ -21,10 +21,15 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    const { items, totalPrice, deliveryAddress, paymentMethod, customerInfo } = req.body;
+    const { items, totalPrice, deliveryAddress, paymentMethod, customerInfo, orderType } = req.body;
 
     if (!items || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Cart is empty' });
+    }
+
+    // Validate orderType
+    if (!orderType || !['dine_in', 'takeaway', 'delivery'].includes(orderType)) {
+      return res.status(400).json({ success: false, message: 'Valid order type is required (dine_in, takeaway, or delivery)' });
     }
 
     // For guest orders, customerInfo is required
@@ -61,6 +66,7 @@ export const createOrder = async (req, res) => {
       deliveryAddress,
       paymentMethod,
       paymentStatus: 'pending', // Will be updated when payment is verified
+      orderType,
     });
 
     await order.save();
@@ -135,6 +141,7 @@ export const getOutletOrders = async (req, res) => {
     }
 
     const { outletId } = req.params;
+    const { orderType } = req.query; // Get orderType filter from query params
 
     // Verify user has access to this outlet
     const outlet = await Outlet.findById(outletId).populate('restaurantId');
@@ -154,11 +161,19 @@ export const getOutletOrders = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    // Only show orders that are paid (for owner/manager view)
-    const orders = await Order.find({ 
+    // Build query filter
+    const queryFilter = { 
       outletId,
       paymentStatus: 'paid' // Only show paid orders to owners/managers
-    })
+    };
+
+    // Add orderType filter if provided
+    if (orderType && ['dine_in', 'takeaway', 'delivery'].includes(orderType)) {
+      queryFilter.orderType = orderType;
+    }
+
+    // Only show orders that are paid (for owner/manager view)
+    const orders = await Order.find(queryFilter)
       .populate('userId', 'name email')
       .sort({ createdAt: -1 });
 
