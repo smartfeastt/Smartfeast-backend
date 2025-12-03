@@ -325,6 +325,70 @@ const getItemsByOutletName = async (req, res) => {
   }
 };
 
+/**
+ * Sync menu items for vendor (returns items updated/created since timestamp)
+ */
+const syncVendorMenuItems = async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'Token required' });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+
+    if (decoded.type !== 'owner' && decoded.type !== 'manager') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const { since } = req.query;
+    const sinceDate = since ? new Date(since) : new Date(0);
+
+    // Get accessible outlets
+    let accessibleOutletIds = [];
+
+    if (decoded.type === 'owner') {
+      const restaurants = await Restaurant.find({ ownerId: decoded.userId });
+      const restaurantIds = restaurants.map(r => r._id);
+      const outlets = await Outlet.find({ restaurantId: { $in: restaurantIds } });
+      accessibleOutletIds = outlets.map(o => o._id);
+    } else if (decoded.type === 'manager') {
+      const { User } = await import('../models/User.js');
+      const user = await User.findById(decoded.userId);
+      if (user && user.managedOutlets) {
+        accessibleOutletIds = user.managedOutlets.map(id => id.toString());
+      }
+    }
+
+    if (accessibleOutletIds.length === 0) {
+      return res.status(200).json({ success: true, items: [] });
+    }
+
+    // Find items updated or created since the timestamp
+    const items = await MenuItem.find({
+      outletId: { $in: accessibleOutletIds },
+      $or: [
+        { updatedAt: { $gte: sinceDate } },
+        { createdAt: { $gte: sinceDate } }
+      ]
+    })
+      .populate('outletId', 'name')
+      .sort({ updatedAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      items,
+      syncedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error syncing vendor menu items:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 // ✅ Export all functions at the bottom
 export {
   createItem,
@@ -334,5 +398,6 @@ export {
   getItemsByOutlet,
   getItemsByOutletName,
   updateItemPhoto,
+  syncVendorMenuItems,
 };
 

@@ -8,13 +8,16 @@ import {
   getAllOutletsForMap,
   assignManager,
   removeManager,
+  syncVendorOutlets,
 } from "../controllers/outlet.controller.js";
+import { authMiddleware } from "../middleware/middleware.js";
 
 const router = express.Router();
 
 // Public routes
 router.get("/all/map", getAllOutletsForMap); // ?latitude=xx&longitude=xx (optional)
 router.get("/restaurant/:restaurantId", getOutletsByRestaurant); // ?token=xxx (optional)
+router.get("/sync", authMiddleware, syncVendorOutlets); // Sync endpoint for vendor
 router.get("/:outletId", getOutletById);
 
 // Owner/Manager routes
