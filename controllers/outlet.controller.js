@@ -2,6 +2,7 @@ import { Outlet } from "../models/Outlet.js";
 import { Restaurant } from "../models/Restaurant.js";
 import { User } from "../models/User.js";
 import { verifyToken } from "../middleware/jwt.js";
+import supabase from "../config/supabase.config.js";
 import mongoose from "mongoose";
 
 /**
@@ -55,6 +56,26 @@ const createOutlet = async (req, res) => {
 
     await newOutlet.save();
 
+    // Generate signed URL for image upload
+    let signedUrlData = null;
+    const outletId = newOutlet._id.toString();
+    const path = `outlets/${outletId}`;
+    
+    const { data, error } = await supabase
+      .storage
+      .from('smartfeast')
+      .createSignedUploadUrl(path, 60);
+
+    if (!error && data) {
+      signedUrlData = {
+        signedUrl: data.signedUrl,
+        path: path,
+      };
+      const fullUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/smartfeast/${path}`;
+      newOutlet.image = fullUrl;
+      await newOutlet.save();
+    }
+
     // Add outlet to restaurant
     restaurant.outlets.push(newOutlet._id);
     await restaurant.save();
@@ -63,6 +84,7 @@ const createOutlet = async (req, res) => {
       success: true,
       message: "Outlet created successfully",
       outlet: newOutlet,
+      signedUrl: signedUrlData,
     });
   } catch (error) {
     console.error("Error creating outlet:", error);

@@ -5,24 +5,31 @@ import { Restaurant } from '../models/Restaurant.js';
 import { verifyToken } from '../middleware/jwt.js';
 
 /**
- * Create order from cart
+ * Create order from cart (supports guest orders)
  */
 export const createOrder = async (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ success: false, message: 'Token required' });
+    let decoded = null;
+    let userId = null;
+
+    // Token is optional for guest orders
+    if (token) {
+      decoded = verifyToken(token);
+      if (decoded) {
+        userId = decoded.userId;
+      }
     }
 
-    const decoded = verifyToken(token);
-    if (!decoded) {
-      return res.status(401).json({ success: false, message: 'Invalid token' });
-    }
-
-    const { items, totalPrice, deliveryAddress, paymentMethod } = req.body;
+    const { items, totalPrice, deliveryAddress, paymentMethod, customerInfo } = req.body;
 
     if (!items || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Cart is empty' });
+    }
+
+    // For guest orders, customerInfo is required
+    if (!userId && (!customerInfo || !customerInfo.name || !customerInfo.email || !customerInfo.phone)) {
+      return res.status(400).json({ success: false, message: 'Customer information is required for guest orders' });
     }
 
     // Get outletId from first item
@@ -35,7 +42,12 @@ export const createOrder = async (req, res) => {
     const restaurantId = outlet.restaurantId?._id || outlet.restaurantId;
 
     const order = new Order({
-      userId: decoded.userId,
+      userId: userId || null,
+      customerInfo: userId ? undefined : {
+        name: customerInfo.name,
+        email: customerInfo.email,
+        phone: customerInfo.phone,
+      },
       outletId,
       restaurantId,
       items: items.map(item => ({
@@ -48,22 +60,26 @@ export const createOrder = async (req, res) => {
       totalPrice,
       deliveryAddress,
       paymentMethod,
-      paymentStatus: paymentMethod !== 'cash' ? 'paid' : 'pending',
+      paymentStatus: 'pending', // Will be updated when payment is verified
     });
 
     await order.save();
 
-    // Clear cart after order creation
-    const cart = await Cart.findOne({ userId: decoded.userId });
-    if (cart) {
-      cart.items = [];
-      await cart.save();
+    // Clear cart after order creation (only if user is logged in)
+    if (userId) {
+      const cart = await Cart.findOne({ userId });
+      if (cart) {
+        cart.items = [];
+        await cart.save();
+      }
     }
 
     // Emit socket event for real-time update
     const outletIdStr = outletId.toString();
     req.io?.to(`outlet-${outletIdStr}`).emit('new-order', order);
-    req.io?.to(`user-${decoded.userId}`).emit('order-created', order);
+    if (userId) {
+      req.io?.to(`user-${userId}`).emit('order-created', order);
+    }
 
     return res.status(201).json({
       success: true,
@@ -138,7 +154,11 @@ export const getOutletOrders = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    const orders = await Order.find({ outletId })
+    // Only show orders that are paid (for owner/manager view)
+    const orders = await Order.find({ 
+      outletId,
+      paymentStatus: 'paid' // Only show paid orders to owners/managers
+    })
       .populate('userId', 'name email')
       .sort({ createdAt: -1 });
 
@@ -194,7 +214,9 @@ export const updateOrderStatus = async (req, res) => {
 
     // Emit socket event for real-time update
     const outletIdStr = order.outletId._id?.toString() || order.outletId.toString();
-    req.io?.to(`user-${order.userId}`).emit('order-updated', order);
+    if (order.userId) {
+      req.io?.to(`user-${order.userId}`).emit('order-updated', order);
+    }
     req.io?.to(`outlet-${outletIdStr}`).emit('order-updated', order);
 
     return res.status(200).json({
@@ -204,6 +226,78 @@ export const updateOrderStatus = async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating order status:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * Update payment status
+ */
+export const updatePaymentStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { paymentStatus } = req.body;
+
+    if (!['pending', 'paid', 'failed', 'refunded'].includes(paymentStatus)) {
+      return res.status(400).json({ success: false, message: 'Invalid payment status' });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    order.paymentStatus = paymentStatus;
+    
+    // If payment is successful, update order status to confirmed
+    if (paymentStatus === 'paid' && order.status === 'pending') {
+      order.status = 'confirmed';
+    }
+    
+    await order.save();
+
+    // Emit socket event for real-time update
+    const outletIdStr = order.outletId._id?.toString() || order.outletId.toString();
+    if (order.userId) {
+      req.io?.to(`user-${order.userId}`).emit('payment-updated', order);
+    }
+    req.io?.to(`outlet-${outletIdStr}`).emit('payment-updated', order);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Payment status updated',
+      order,
+    });
+  } catch (error) {
+    console.error('Error updating payment status:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * Verify payment status
+ */
+export const verifyPayment = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      order: {
+        _id: order._id,
+        orderNumber: order.orderNumber,
+        paymentStatus: order.paymentStatus,
+        status: order.status,
+        totalPrice: order.totalPrice,
+      },
+    });
+  } catch (error) {
+    console.error('Error verifying payment:', error);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };

@@ -8,6 +8,7 @@ import itemRoutes from "./routes/item.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import cartRoutes from "./routes/cart.routes.js";
 import orderRoutes from "./routes/order.routes.js";
+import favoriteRoutes from "./routes/favorite.routes.js";
 import supabaseRoutes from "./routes/supabase.routes.js";
 import supabase from './config/supabase.config.js';
 
@@ -40,6 +41,7 @@ app.use("/api/item", itemRoutes);
 app.use("/api/category", categoryRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/order", orderRoutes);
+app.use("/api/favorite", favoriteRoutes);
 app.use("/api/supabase", supabaseRoutes);
 
 // Socket.io connection handling

@@ -5,7 +5,12 @@ const OrderSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: false, // Optional for guest orders
+    },
+    customerInfo: {
+      name: { type: String },
+      email: { type: String },
+      phone: { type: String },
     },
     outletId: {
       type: mongoose.Schema.Types.ObjectId,

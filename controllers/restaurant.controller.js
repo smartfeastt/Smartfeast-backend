@@ -1,6 +1,7 @@
 import { Restaurant } from "../models/Restaurant.js";
 import { User } from "../models/User.js";
 import { verifyToken } from "../middleware/jwt.js";
+import supabase from "../config/supabase.config.js";
 import mongoose from "mongoose";
 
 /**
@@ -32,6 +33,26 @@ const createRestaurant = async (req, res) => {
 
     await newRestaurant.save();
 
+    // Generate signed URL for image upload
+    let signedUrlData = null;
+    const restaurantId = newRestaurant._id.toString();
+    const path = `restaurants/${restaurantId}`;
+    
+    const { data, error } = await supabase
+      .storage
+      .from('smartfeast')
+      .createSignedUploadUrl(path, 60);
+
+    if (!error && data) {
+      signedUrlData = {
+        signedUrl: data.signedUrl,
+        path: path,
+      };
+      const fullUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/smartfeast/${path}`;
+      newRestaurant.image = fullUrl;
+      await newRestaurant.save();
+    }
+
     // Add restaurant to owner's ownedRestaurants
     await User.findByIdAndUpdate(decoded.userId, {
       $push: { ownedRestaurants: newRestaurant._id }
@@ -41,6 +62,7 @@ const createRestaurant = async (req, res) => {
       success: true,
       message: "Restaurant created successfully",
       restaurant: newRestaurant,
+      signedUrl: signedUrlData,
     });
   } catch (error) {
     console.error("Error creating restaurant:", error);

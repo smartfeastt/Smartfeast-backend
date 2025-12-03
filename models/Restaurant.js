@@ -23,6 +23,10 @@ const RestaurantSchema = new mongoose.Schema(
       default: 3, // default limit of outlets
       min: 1,
     },
+    image: {
+      type: String,
+      trim: true,
+    },
   },
   {
     timestamps: true,
