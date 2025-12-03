@@ -3,6 +3,7 @@ import { Restaurant } from "../models/Restaurant.js";
 import { User } from "../models/User.js";
 import { verifyToken } from "../middleware/jwt.js";
 import supabase from "../config/supabase.config.js";
+import { geocodeAddress, calculateDistance } from "../utils/geocoding.js";
 import mongoose from "mongoose";
 
 /**
@@ -10,7 +11,14 @@ import mongoose from "mongoose";
  */
 const createOutlet = async (req, res) => {
   try {
-    const { token, restaurantId, name, location } = req.body;
+    const { 
+      token, 
+      restaurantId, 
+      name, 
+      location,
+      address,
+      coordinates 
+    } = req.body;
 
     if (!token || !restaurantId || !name) {
       return res.status(400).json({ success: false, message: "Token, restaurantId, and name are required" });
@@ -45,10 +53,42 @@ const createOutlet = async (req, res) => {
       });
     }
 
+    // Prepare address data
+    let addressData = null;
+    let coordinatesData = null;
+
+    if (address) {
+      addressData = {
+        street: address.street || '',
+        city: address.city || '',
+        state: address.state || '',
+        pincode: address.pincode || '',
+        country: address.country || 'India',
+        fullAddress: address.fullAddress || 
+          `${address.street || ''}, ${address.city || ''}, ${address.state || ''} ${address.pincode || ''}`.trim(),
+      };
+
+      // If coordinates provided, use them; otherwise geocode from address
+      if (coordinates && coordinates.latitude && coordinates.longitude) {
+        coordinatesData = {
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+        };
+      } else if (addressData.fullAddress) {
+        // Auto-geocode from address
+        const geocoded = await geocodeAddress(addressData.fullAddress);
+        if (geocoded) {
+          coordinatesData = geocoded;
+        }
+      }
+    }
+
     // Create outlet
     const newOutlet = new Outlet({
       name,
-      location,
+      location: location || addressData?.fullAddress || '',
+      address: addressData,
+      coordinates: coordinatesData,
       restaurantId: new mongoose.Types.ObjectId(restaurantId),
       managers: [],
       menuIds: [],
@@ -98,7 +138,7 @@ const createOutlet = async (req, res) => {
 const updateOutlet = async (req, res) => {
   try {
     const { outletId } = req.params;
-    const { token, ...updateData } = req.body;
+    const { token, address, coordinates, ...updateData } = req.body;
 
     if (!token) {
       return res.status(400).json({ success: false, message: "Token is required" });
@@ -122,6 +162,49 @@ const updateOutlet = async (req, res) => {
 
     if (!isOwner && !isManager) {
       return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    // Handle address and coordinates update
+    if (address || coordinates) {
+      let addressData = outlet.address || {};
+      let coordinatesData = outlet.coordinates || {};
+
+      if (address) {
+        addressData = {
+          street: address.street || addressData.street || '',
+          city: address.city || addressData.city || '',
+          state: address.state || addressData.state || '',
+          pincode: address.pincode || addressData.pincode || '',
+          country: address.country || addressData.country || 'India',
+          fullAddress: address.fullAddress || 
+            `${address.street || addressData.street || ''}, ${address.city || addressData.city || ''}, ${address.state || addressData.state || ''} ${address.pincode || addressData.pincode || ''}`.trim(),
+        };
+
+        // If coordinates provided, use them; otherwise geocode from address
+        if (coordinates && coordinates.latitude && coordinates.longitude) {
+          coordinatesData = {
+            latitude: coordinates.latitude,
+            longitude: coordinates.longitude,
+          };
+        } else if (addressData.fullAddress && (!coordinatesData.latitude || !coordinatesData.longitude)) {
+          // Auto-geocode from address if coordinates not provided
+          const geocoded = await geocodeAddress(addressData.fullAddress);
+          if (geocoded) {
+            coordinatesData = geocoded;
+          }
+        }
+      } else if (coordinates && coordinates.latitude && coordinates.longitude) {
+        coordinatesData = {
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+        };
+      }
+
+      updateData.address = addressData;
+      updateData.coordinates = coordinatesData;
+      if (addressData.fullAddress) {
+        updateData.location = addressData.fullAddress;
+      }
     }
 
     const updatedOutlet = await Outlet.findByIdAndUpdate(outletId, updateData, { new: true });
@@ -236,6 +319,49 @@ const getOutletsByRestaurant = async (req, res) => {
 };
 
 /**
+ * 🌐 Get All Outlets with Coordinates (Public endpoint for map)
+ */
+const getAllOutletsForMap = async (req, res) => {
+  try {
+    const { latitude, longitude } = req.query;
+
+    const outlets = await Outlet.find({
+      'coordinates.latitude': { $exists: true, $ne: null },
+      'coordinates.longitude': { $exists: true, $ne: null },
+    })
+      .populate('restaurantId', 'name image')
+      .select('name location address coordinates image restaurantId');
+
+    // If user location provided, calculate distances and sort
+    if (latitude && longitude) {
+      const userLat = parseFloat(latitude);
+      const userLng = parseFloat(longitude);
+      
+      const outletsWithDistance = outlets.map(outlet => {
+        const distance = calculateDistance(
+          userLat,
+          userLng,
+          outlet.coordinates.latitude,
+          outlet.coordinates.longitude
+        );
+        return {
+          ...outlet.toObject(),
+          distance: Math.round(distance * 10) / 10, // Round to 1 decimal
+        };
+      });
+
+      outletsWithDistance.sort((a, b) => a.distance - b.distance);
+      return res.status(200).json({ success: true, outlets: outletsWithDistance });
+    }
+
+    return res.status(200).json({ success: true, outlets });
+  } catch (error) {
+    console.error("Error fetching outlets for map:", error);
+    return res.status(500).json({ success: false, message: "Server error while fetching outlets" });
+  }
+};
+
+/**
  * 👥 Assign Manager to Outlet (Owner only)
  */
 const assignManager = async (req, res) => {
@@ -268,26 +394,33 @@ const assignManager = async (req, res) => {
       return res.status(403).json({ success: false, message: "You don't own this outlet" });
     }
 
-    // Check if manager exists, if not create one
-    let manager = await User.findOne({ email: managerEmail });
+    // Check if user exists, if not create one with manager role
+    let manager = await User.findOne({ email: managerEmail, role: 'manager' });
     
     if (!manager) {
-      // Create new manager account
-      const { hashPassword } = await import("../middlewear/bcrypt.js");
-      const hashedPassword = await hashPassword(managerPassword);
+      // Check if user exists with different role
+      const existingUser = await User.findOne({ email: managerEmail });
       
-      manager = new User({
-        name: managerEmail.split('@')[0],
-        email: managerEmail,
-        password: hashedPassword,
-        role: 'manager',
-      });
-      await manager.save();
-    } else if (manager.role !== 'manager') {
-      return res.status(400).json({ 
-        success: false, 
-        message: "User exists but is not a manager" 
-      });
+      if (existingUser) {
+        // User exists but not as manager - add manager role or use existing user
+        // For now, we'll allow assigning any user as manager
+        manager = existingUser;
+        
+        // If user doesn't have manager role, we can still assign them
+        // The managedOutlets array will track which outlets they manage
+      } else {
+        // Create new manager account
+        const { hashPassword } = await import("../middlewear/bcrypt.js");
+        const hashedPassword = await hashPassword(managerPassword);
+        
+        manager = new User({
+          name: managerEmail.split('@')[0],
+          email: managerEmail,
+          password: hashedPassword,
+          role: 'manager',
+        });
+        await manager.save();
+      }
     }
 
     // Check if already assigned
@@ -374,6 +507,7 @@ export {
   deleteOutlet,
   getOutletById,
   getOutletsByRestaurant,
+  getAllOutletsForMap,
   assignManager,
   removeManager,
 };

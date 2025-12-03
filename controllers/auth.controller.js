@@ -343,6 +343,82 @@ const google_signin = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
+// DELETE ACCOUNT
+// ---------------------------------------------------------------------------------------------------------------------------------------
+const deleteAccount = async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'Token required' });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // If user is owner, delete their restaurants and outlets
+    if (user.role === 'owner' && user.ownedRestaurants.length > 0) {
+      const { Restaurant } = await import('../models/Restaurant.js');
+      const { Outlet } = await import('../models/Outlet.js');
+      
+      // Delete all restaurants owned by this user
+      for (const restaurantId of user.ownedRestaurants) {
+        const restaurant = await Restaurant.findById(restaurantId);
+        if (restaurant) {
+          // Delete all outlets of this restaurant
+          for (const outletId of restaurant.outlets || []) {
+            await Outlet.findByIdAndDelete(outletId);
+            // Remove outlet from managers' managedOutlets
+            await User.updateMany(
+              { managedOutlets: outletId },
+              { $pull: { managedOutlets: outletId } }
+            );
+          }
+          await Restaurant.findByIdAndDelete(restaurantId);
+        }
+      }
+    }
+
+    // If user is manager, remove them from outlets
+    if (user.role === 'manager' && user.managedOutlets.length > 0) {
+      const { Outlet } = await import('../models/Outlet.js');
+      for (const outletId of user.managedOutlets) {
+        const outlet = await Outlet.findById(outletId);
+        if (outlet) {
+          outlet.managers = outlet.managers.filter(m => m.toString() !== user._id.toString());
+          await outlet.save();
+        }
+      }
+    }
+
+    // Delete user's cart
+    const { Cart } = await import('../models/Cart.js');
+    await Cart.deleteOne({ userId: user._id });
+
+    // Delete user's orders (optional - you might want to keep them for records)
+    // const { Order } = await import('../models/Order.js');
+    // await Order.updateMany({ userId: user._id }, { userId: null });
+
+    // Delete the user account
+    await User.findByIdAndDelete(user._id);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Account deleted successfully',
+    });
+  } catch (error) {
+    console.error('Error deleting account:', error);
+    return res.status(500).json({ success: false, message: 'Server error while deleting account' });
+  }
+};
+
+// ---------------------------------------------------------------------------------------------------------------------------------------
 export {
   signIn,
   signUp,
@@ -353,4 +429,5 @@ export {
   reset_password,
   is_Authenticated,
   google_signin,
+  deleteAccount,
 };

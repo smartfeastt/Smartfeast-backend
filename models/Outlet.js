@@ -28,6 +28,18 @@ const OutletSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    address: {
+      street: { type: String, trim: true },
+      city: { type: String, trim: true },
+      state: { type: String, trim: true },
+      pincode: { type: String, trim: true },
+      country: { type: String, trim: true, default: 'India' },
+      fullAddress: { type: String, trim: true },
+    },
+    coordinates: {
+      latitude: { type: Number },
+      longitude: { type: Number },
+    },
     image: {
       type: String,
       trim: true,

@@ -1,6 +1,6 @@
 // routes/signin.js
 import express from "express";
-import { signIn, signUp, logout, user_exists, generate_otp, verify_otp, reset_password, is_Authenticated } from "../controllers/auth.controller.js";
+import { signIn, signUp, logout, user_exists, generate_otp, verify_otp, reset_password, is_Authenticated, deleteAccount } from "../controllers/auth.controller.js";
 
 const router = express.Router();
 
@@ -12,5 +12,6 @@ router.post('/signup', signUp);
 router.post('/logout', logout);
 router.post('/reset_password', reset_password);
 router.post('/isAuthenticated', is_Authenticated);
+router.delete('/delete-account', deleteAccount);
 
 export default router;

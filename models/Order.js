@@ -72,8 +72,24 @@ const OrderSchema = new mongoose.Schema(
 // Generate order number before saving
 OrderSchema.pre('save', async function (next) {
   if (!this.orderNumber) {
-    const count = await mongoose.model('Order').countDocuments();
-    this.orderNumber = `ORD-${Date.now()}-${count + 1}`;
+    // Generate unique order number
+    let orderNumber;
+    let isUnique = false;
+    let attempts = 0;
+    
+    while (!isUnique && attempts < 10) {
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 10000);
+      orderNumber = `ORD-${timestamp}-${random}`;
+      
+      const existing = await mongoose.model('Order').findOne({ orderNumber });
+      if (!existing) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+    
+    this.orderNumber = orderNumber;
   }
   next();
 });

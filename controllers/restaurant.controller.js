@@ -145,6 +145,20 @@ const deleteRestaurant = async (req, res) => {
       return res.status(403).json({ success: false, message: "You don't own this restaurant" });
     }
 
+    // Delete all outlets associated with this restaurant
+    const { Outlet } = await import('../models/Outlet.js');
+    for (const outletId of restaurant.outlets || []) {
+      const outlet = await Outlet.findById(outletId);
+      if (outlet) {
+        // Remove outlet from managers' managedOutlets
+        await User.updateMany(
+          { managedOutlets: outletId },
+          { $pull: { managedOutlets: outletId } }
+        );
+        await Outlet.findByIdAndDelete(outletId);
+      }
+    }
+
     // Remove restaurant from owner's ownedRestaurants
     await User.findByIdAndUpdate(decoded.userId, {
       $pull: { ownedRestaurants: restaurantId }
@@ -234,7 +248,10 @@ const getOwnerRestaurants = async (req, res) => {
 const getAllRestaurants = async (req, res) => {
   try {
     const restaurants = await Restaurant.find({})
-      .populate('outlets', 'name location')
+      .populate({
+        path: 'outlets',
+        select: 'name location address coordinates image',
+      })
       .populate('ownerId', 'name')
       .sort({ createdAt: -1 });
 

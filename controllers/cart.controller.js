@@ -192,3 +192,46 @@ export const clearCart = async (req, res) => {
   }
 };
 
+/**
+ * Sync cart (replace all items)
+ */
+export const syncCart = async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'Token required' });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+
+    const { items } = req.body;
+
+    let cart = await Cart.findOne({ userId: decoded.userId });
+    
+    if (!cart) {
+      cart = new Cart({ userId: decoded.userId, items: [] });
+    }
+
+    // Replace all items
+    cart.items = (items || []).map(item => ({
+      itemId: item.itemId || item._id,
+      itemName: item.itemName,
+      itemPrice: item.itemPrice,
+      quantity: item.quantity,
+      itemPhoto: item.itemPhoto,
+      outletId: item.outletId,
+    }));
+
+    await cart.save();
+    await cart.populate('items.itemId');
+
+    return res.status(200).json({ success: true, cart });
+  } catch (error) {
+    console.error('Error syncing cart:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+

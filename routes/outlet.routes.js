@@ -5,6 +5,7 @@ import {
   deleteOutlet,
   getOutletById,
   getOutletsByRestaurant,
+  getAllOutletsForMap,
   assignManager,
   removeManager,
 } from "../controllers/outlet.controller.js";
@@ -12,6 +13,7 @@ import {
 const router = express.Router();
 
 // Public routes
+router.get("/all/map", getAllOutletsForMap); // ?latitude=xx&longitude=xx (optional)
 router.get("/restaurant/:restaurantId", getOutletsByRestaurant); // ?token=xxx (optional)
 router.get("/:outletId", getOutletById);
 
