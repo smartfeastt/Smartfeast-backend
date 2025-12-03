@@ -49,6 +49,11 @@ const OutletSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    outletImage: {
+      type: String,
+      trim: true,
+      default: "",
+    },
   },
   {
     timestamps: true,

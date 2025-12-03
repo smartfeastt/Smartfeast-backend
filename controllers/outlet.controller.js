@@ -17,7 +17,8 @@ const createOutlet = async (req, res) => {
       name, 
       location,
       address,
-      coordinates 
+      coordinates,
+      outletImage 
     } = req.body;
 
     if (!token || !restaurantId || !name) {
@@ -92,6 +93,7 @@ const createOutlet = async (req, res) => {
       restaurantId: new mongoose.Types.ObjectId(restaurantId),
       managers: [],
       menuIds: [],
+      outletImage: outletImage || "",
     });
 
     await newOutlet.save();
@@ -138,7 +140,7 @@ const createOutlet = async (req, res) => {
 const updateOutlet = async (req, res) => {
   try {
     const { outletId } = req.params;
-    const { token, address, coordinates, ...updateData } = req.body;
+    const { token, address, coordinates, outletImage, ...updateData } = req.body;
 
     if (!token) {
       return res.status(400).json({ success: false, message: "Token is required" });
@@ -205,6 +207,11 @@ const updateOutlet = async (req, res) => {
       if (addressData.fullAddress) {
         updateData.location = addressData.fullAddress;
       }
+    }
+
+    // Handle outletImage update
+    if (outletImage !== undefined) {
+      updateData.outletImage = outletImage || "";
     }
 
     const updatedOutlet = await Outlet.findByIdAndUpdate(outletId, updateData, { new: true });

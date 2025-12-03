@@ -312,6 +312,11 @@ const getItemsByOutletName = async (req, res) => {
         _id: outlet._id,
         name: outlet.name,
         location: outlet.location,
+        outletImage: outlet.outletImage || null,
+        profilePhotoUrl: outlet.profilePhotoUrl || null,
+        image: outlet.image || null,
+        address: outlet.address || null,
+        coordinates: outlet.coordinates || null,
       }
     });
   } catch (error) {

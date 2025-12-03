@@ -9,7 +9,7 @@ import mongoose from "mongoose";
  */
 const createRestaurant = async (req, res) => {
   try {
-    const { token, name, outlet_count } = req.body;
+    const { token, name, outlet_count, restaurantImage } = req.body;
 
     if (!token || !name) {
       return res.status(400).json({ success: false, message: "Token and name are required" });
@@ -29,6 +29,7 @@ const createRestaurant = async (req, res) => {
       ownerId: new mongoose.Types.ObjectId(decoded.userId),
       outlets: [],
       outlet_count: outlet_count || 3,
+      restaurantImage: restaurantImage || "",
     });
 
     await newRestaurant.save();
@@ -102,6 +103,11 @@ const updateRestaurant = async (req, res) => {
 
     // Don't allow changing ownerId
     delete updateData.ownerId;
+
+    // Handle restaurantImage update
+    if (updateData.restaurantImage !== undefined) {
+      updateData.restaurantImage = updateData.restaurantImage || "";
+    }
 
     const updatedRestaurant = await Restaurant.findByIdAndUpdate(restaurantId, updateData, { new: true });
     return res.status(200).json({

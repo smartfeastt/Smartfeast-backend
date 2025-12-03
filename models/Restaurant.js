@@ -32,6 +32,11 @@ const RestaurantSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    restaurantImage: {
+      type: String,
+      trim: true,
+      default: "",
+    },
   },
   {
     timestamps: true,
