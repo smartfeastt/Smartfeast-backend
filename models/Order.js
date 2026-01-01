@@ -72,6 +72,26 @@ const OrderSchema = new mongoose.Schema(
       enum: ['dine_in', 'takeaway', 'delivery'],
       required: true,
     },
+    tableNumber: {
+      type: String,
+      default: null,
+    },
+    kotItems: [
+      {
+        itemId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'MenuItem',
+        },
+        itemName: String,
+        itemPrice: Number,
+        quantity: Number,
+        kotGenerated: {
+          type: Boolean,
+          default: false,
+        },
+        kotGeneratedAt: Date,
+      },
+    ],
   },
   {
     timestamps: true,

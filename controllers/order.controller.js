@@ -22,7 +22,7 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    const { items, totalPrice, deliveryAddress, paymentMethod, customerInfo, orderType } = req.body;
+    const { items, totalPrice, deliveryAddress, paymentMethod, paymentType, customerInfo, orderType, tableNumber } = req.body;
 
     if (!items || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Cart is empty' });
@@ -69,6 +69,14 @@ export const createOrder = async (req, res) => {
       paymentType: paymentType || 'pay_now', // pay_now or pay_later
       paymentStatus: paymentType === 'pay_later' ? 'pending' : 'pending', // Will be updated when payment is verified
       orderType,
+      tableNumber: orderType === 'dine_in' ? tableNumber : null, // Only for dine-in orders
+      kotItems: items.map(item => ({
+        itemId: item.itemId,
+        itemName: item.itemName,
+        itemPrice: item.itemPrice,
+        quantity: item.quantity,
+        kotGenerated: false,
+      })),
     });
 
     await order.save();
@@ -474,6 +482,16 @@ export const addItemsToOrder = async (req, res) => {
     existingOrder.items.push(...newItems);
     existingOrder.totalPrice += newItemsTotalWithFees;
 
+    // Add new items to kotItems array (not yet prepared)
+    const newKotItems = items.map(item => ({
+      itemId: item.itemId,
+      itemName: item.itemName,
+      itemPrice: item.itemPrice,
+      quantity: item.quantity,
+      kotGenerated: false,
+    }));
+    existingOrder.kotItems.push(...newKotItems);
+
     // Handle payment based on parent order paymentType
     if (existingOrder.paymentType === 'pay_later') {
       // Pay Later: items are added directly, payment status remains pending
@@ -508,6 +526,162 @@ export const addItemsToOrder = async (req, res) => {
     });
   } catch (error) {
     console.error('Error adding items to order:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * Generate KOT for order (mark items as prepared for kitchen)
+ */
+export const generateKOT = async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'Token required' });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+
+    const { orderId } = req.params;
+    const { itemIds } = req.body; // Optional: specific item IDs to generate KOT for. If not provided, generate for all unprepared items
+
+    const order = await Order.findById(orderId)
+      .populate('outletId', 'name location')
+      .populate('restaurantId', 'name')
+      .populate('userId', 'name email');
+    
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Verify access
+    const outlet = await Outlet.findById(order.outletId).populate('restaurantId');
+    if (!outlet) {
+      return res.status(404).json({ success: false, message: 'Outlet not found' });
+    }
+    
+    const restaurant = await Restaurant.findById(outlet.restaurantId);
+    const isOwner = decoded.type === 'owner' && 
+                    restaurant &&
+                    restaurant.ownerId?.toString() === decoded.userId;
+    const isManager = decoded.type === 'manager' && 
+                      outlet.managers?.some(m => m.toString() === decoded.userId);
+
+    if (!isOwner && !isManager) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    // Determine which items to generate KOT for
+    let itemsToKot = [];
+    if (itemIds && itemIds.length > 0) {
+      // Generate KOT for specific items
+      itemsToKot = order.kotItems.filter(kotItem => 
+        itemIds.includes(kotItem.itemId?.toString()) && !kotItem.kotGenerated
+      );
+    } else {
+      // Generate KOT for all unprepared items
+      itemsToKot = order.kotItems.filter(kotItem => !kotItem.kotGenerated);
+    }
+
+    if (itemsToKot.length === 0) {
+      return res.status(400).json({ success: false, message: 'No items available for KOT generation' });
+    }
+
+    // Mark items as KOT generated
+    itemsToKot.forEach(kotItem => {
+      kotItem.kotGenerated = true;
+      kotItem.kotGeneratedAt = new Date();
+    });
+
+    await order.save();
+
+    // Populate order before returning
+    const populatedOrder = await Order.findById(order._id)
+      .populate('userId', 'name email')
+      .populate('outletId', 'name location')
+      .populate('restaurantId', 'name');
+
+    return res.status(200).json({
+      success: true,
+      message: 'KOT generated successfully',
+      order: populatedOrder,
+      kotItems: itemsToKot,
+    });
+  } catch (error) {
+    console.error('Error generating KOT:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * Get KOT data for printing
+ */
+export const getKOTData = async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'Token required' });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+
+    const { orderId } = req.params;
+    const { includePrepared } = req.query; // Optional: include already prepared items
+
+    const order = await Order.findById(orderId)
+      .populate('outletId', 'name location')
+      .populate('restaurantId', 'name')
+      .populate('userId', 'name email');
+    
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Verify access
+    const outlet = await Outlet.findById(order.outletId).populate('restaurantId');
+    if (!outlet) {
+      return res.status(404).json({ success: false, message: 'Outlet not found' });
+    }
+    
+    const restaurant = await Restaurant.findById(outlet.restaurantId);
+    const isOwner = decoded.type === 'owner' && 
+                    restaurant &&
+                    restaurant.ownerId?.toString() === decoded.userId;
+    const isManager = decoded.type === 'manager' && 
+                      outlet.managers?.some(m => m.toString() === decoded.userId);
+
+    if (!isOwner && !isManager) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    // Get KOT items (only unprepared items by default)
+    let kotItems = order.kotItems || [];
+    if (includePrepared !== 'true') {
+      kotItems = (order.kotItems || []).filter(kotItem => !kotItem.kotGenerated);
+    }
+
+    return res.status(200).json({
+      success: true,
+      kot: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        tableNumber: order.tableNumber,
+        restaurantName: order.restaurantId?.name || 'Restaurant',
+        outletName: order.outletId?.name || 'Outlet',
+        customerName: order.userId?.name || order.customerInfo?.name || 'Guest',
+        items: kotItems,
+        createdAt: order.createdAt,
+        kotGeneratedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting KOT data:', error);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
