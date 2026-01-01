@@ -81,11 +81,18 @@ export const createOrder = async (req, res) => {
       }
     }
 
+    // Populate order before emitting (to match what frontend expects)
+    const populatedOrder = await Order.findById(order._id)
+      .populate('userId', 'name email')
+      .populate('outletId', 'name location')
+      .populate('restaurantId', 'name');
+
     // Emit socket event for real-time update
     const outletIdStr = outletId.toString();
-    req.io?.to(`outlet-${outletIdStr}`).emit('new-order', order);
+    console.log(`[Socket] Emitting new-order to outlet-${outletIdStr}`, populatedOrder._id);
+    req.io?.to(`outlet-${outletIdStr}`).emit('new-order', populatedOrder);
     if (userId) {
-      req.io?.to(`user-${userId}`).emit('order-created', order);
+      req.io?.to(`user-${userId}`).emit('order-created', populatedOrder);
     }
 
     return res.status(201).json({
@@ -297,17 +304,23 @@ export const updateOrderStatus = async (req, res) => {
     order.status = status;
     await order.save();
 
+    // Populate order before emitting
+    const populatedOrder = await Order.findById(order._id)
+      .populate('userId', 'name email')
+      .populate('outletId', 'name location')
+      .populate('restaurantId', 'name');
+
     // Emit socket event for real-time update
-    const outletIdStr = order.outletId._id?.toString() || order.outletId.toString();
-    if (order.userId) {
-      req.io?.to(`user-${order.userId}`).emit('order-updated', order);
+    const outletIdStr = populatedOrder.outletId._id?.toString() || populatedOrder.outletId.toString();
+    if (populatedOrder.userId) {
+      req.io?.to(`user-${populatedOrder.userId._id || populatedOrder.userId}`).emit('order-updated', populatedOrder);
     }
-    req.io?.to(`outlet-${outletIdStr}`).emit('order-updated', order);
+    req.io?.to(`outlet-${outletIdStr}`).emit('order-updated', populatedOrder);
 
     return res.status(200).json({
       success: true,
       message: 'Order status updated',
-      order,
+      order: populatedOrder,
     });
   } catch (error) {
     console.error('Error updating order status:', error);
@@ -341,12 +354,24 @@ export const updatePaymentStatus = async (req, res) => {
     
     await order.save();
 
+    // Populate order before emitting (to match what frontend expects)
+    const populatedOrder = await Order.findById(order._id)
+      .populate('userId', 'name email')
+      .populate('outletId', 'name location')
+      .populate('restaurantId', 'name');
+
     // Emit socket event for real-time update
-    const outletIdStr = order.outletId._id?.toString() || order.outletId.toString();
-    if (order.userId) {
-      req.io?.to(`user-${order.userId}`).emit('payment-updated', order);
+    const outletIdStr = populatedOrder.outletId._id?.toString() || populatedOrder.outletId.toString();
+    console.log(`[Socket] Emitting payment-updated to outlet-${outletIdStr}`, populatedOrder._id);
+    if (populatedOrder.userId) {
+      req.io?.to(`user-${populatedOrder.userId._id || populatedOrder.userId}`).emit('payment-updated', populatedOrder);
     }
-    req.io?.to(`outlet-${outletIdStr}`).emit('payment-updated', order);
+    req.io?.to(`outlet-${outletIdStr}`).emit('payment-updated', populatedOrder);
+    
+    // Also emit new-order if payment is paid (so vendor sees it immediately)
+    if (paymentStatus === 'paid') {
+      req.io?.to(`outlet-${outletIdStr}`).emit('new-order', populatedOrder);
+    }
 
     return res.status(200).json({
       success: true,

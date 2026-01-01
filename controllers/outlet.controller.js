@@ -288,11 +288,20 @@ const getOutletById = async (req, res) => {
   try {
     const { outletId } = req.params;
     console.log("inside outlet by id");
-    const outlet = await Outlet.findById(outletId);
+    const outlet = await Outlet.findById(outletId)
+      .populate({
+        path: 'managers',
+        select: 'name email',
+        model: 'User'
+      })
+      .populate('restaurantId', 'name');
 
     if (!outlet) {
       return res.status(404).json({ success: false, message: "Outlet not found" });
     }
+
+    // Debug log to verify managers are populated
+    console.log("Outlet managers:", outlet.managers);
 
     return res.status(200).json({ success: true, outlet });
   } catch (error) {
