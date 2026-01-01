@@ -48,6 +48,11 @@ const OrderSchema = new mongoose.Schema(
       enum: ['cash', 'card', 'upi', 'wallet'],
       required: true,
     },
+    paymentType: {
+      type: String,
+      enum: ['pay_now', 'pay_later'],
+      default: 'pay_now',
+    },
     paymentStatus: {
       type: String,
       enum: ['pending', 'paid', 'failed', 'refunded'],

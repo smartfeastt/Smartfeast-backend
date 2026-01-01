@@ -66,7 +66,8 @@ export const createOrder = async (req, res) => {
       totalPrice,
       deliveryAddress,
       paymentMethod,
-      paymentStatus: 'pending', // Will be updated when payment is verified
+      paymentType: paymentType || 'pay_now', // pay_now or pay_later
+      paymentStatus: paymentType === 'pay_later' ? 'pending' : 'pending', // Will be updated when payment is verified
       orderType,
     });
 
@@ -408,6 +409,105 @@ export const verifyPayment = async (req, res) => {
     });
   } catch (error) {
     console.error('Error verifying payment:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * Add items to existing order (reorder functionality)
+ */
+export const addItemsToOrder = async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    let decoded = null;
+    let userId = null;
+
+    if (token) {
+      decoded = verifyToken(token);
+      if (decoded) {
+        userId = decoded.userId;
+      }
+    }
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required for reorder' });
+    }
+
+    const { orderId } = req.params;
+    const { items } = req.body;
+
+    if (!items || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'No items provided' });
+    }
+
+    // Find the existing order
+    const existingOrder = await Order.findById(orderId)
+      .populate('outletId')
+      .populate('restaurantId');
+    
+    if (!existingOrder) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Verify user owns this order
+    if (existingOrder.userId?.toString() !== userId) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    // Calculate total for new items
+    const newItemsTotal = items.reduce((total, item) => {
+      return total + (item.itemPrice * item.quantity);
+    }, 0);
+    const deliveryFee = 30;
+    const tax = newItemsTotal * 0.05;
+    const newItemsTotalWithFees = newItemsTotal + deliveryFee + tax;
+
+    // Add new items to existing order
+    const newItems = items.map(item => ({
+      itemId: item.itemId,
+      itemName: item.itemName,
+      itemPrice: item.itemPrice,
+      quantity: item.quantity,
+      itemPhoto: item.itemPhoto,
+    }));
+
+    existingOrder.items.push(...newItems);
+    existingOrder.totalPrice += newItemsTotalWithFees;
+
+    // Handle payment based on parent order paymentType
+    if (existingOrder.paymentType === 'pay_later') {
+      // Pay Later: items are added directly, payment status remains pending
+      existingOrder.paymentStatus = 'pending';
+    } else {
+      // Pay Now: require payment for new items
+      // Payment will be handled separately by frontend
+      existingOrder.paymentStatus = 'pending';
+    }
+
+    await existingOrder.save();
+
+    // Populate order before emitting
+    const populatedOrder = await Order.findById(existingOrder._id)
+      .populate('userId', 'name email')
+      .populate('outletId', 'name location')
+      .populate('restaurantId', 'name');
+
+    // Emit socket event for real-time update
+    const outletIdStr = populatedOrder.outletId._id?.toString() || populatedOrder.outletId.toString();
+    req.io?.to(`outlet-${outletIdStr}`).emit('order-updated', populatedOrder);
+    if (populatedOrder.userId) {
+      req.io?.to(`user-${populatedOrder.userId._id || populatedOrder.userId}`).emit('order-updated', populatedOrder);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Items added to order successfully',
+      order: populatedOrder,
+      requiresPayment: existingOrder.paymentType === 'pay_now', // Frontend needs to handle payment
+      newItemsTotal: newItemsTotalWithFees,
+    });
+  } catch (error) {
+    console.error('Error adding items to order:', error);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
