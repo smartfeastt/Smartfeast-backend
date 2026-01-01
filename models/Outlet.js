@@ -54,6 +54,10 @@ const OutletSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    deliveryEnabled: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,
