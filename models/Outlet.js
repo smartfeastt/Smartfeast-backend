@@ -58,6 +58,14 @@ const OutletSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    payNowEnabled: {
+      type: Boolean,
+      default: true,
+    },
+    payLaterEnabled: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,

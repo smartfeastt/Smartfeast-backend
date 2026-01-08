@@ -462,13 +462,17 @@ export const addItemsToOrder = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    // Calculate total for new items
-    const newItemsTotal = items.reduce((total, item) => {
+    // Cannot add items to cancelled orders
+    if (existingOrder.status === 'cancelled') {
+      return res.status(400).json({ success: false, message: 'Cannot add items to a cancelled order' });
+    }
+
+    // Calculate total for new items (only item prices + tax, no delivery fee)
+    const newItemsSubtotal = items.reduce((total, item) => {
       return total + (item.itemPrice * item.quantity);
     }, 0);
-    const deliveryFee = 30;
-    const tax = newItemsTotal * 0.05;
-    const newItemsTotalWithFees = newItemsTotal + deliveryFee + tax;
+    const taxOnNewItems = newItemsSubtotal * 0.05;
+    const newItemsTotal = newItemsSubtotal + taxOnNewItems; // No delivery fee - already included in original order
 
     // Add new items to existing order
     const newItems = items.map(item => ({
@@ -480,7 +484,7 @@ export const addItemsToOrder = async (req, res) => {
     }));
 
     existingOrder.items.push(...newItems);
-    existingOrder.totalPrice += newItemsTotalWithFees;
+    existingOrder.totalPrice += newItemsTotal; // Add only new items + tax
 
     // Add new items to kotItems array (not yet prepared)
     const newKotItems = items.map(item => ({
@@ -492,7 +496,7 @@ export const addItemsToOrder = async (req, res) => {
     }));
     existingOrder.kotItems.push(...newKotItems);
 
-    // Handle payment based on parent order paymentType
+    // Handle payment and status based on parent order paymentType
     if (existingOrder.paymentType === 'pay_later') {
       // Pay Later: items are added directly, payment status remains pending
       existingOrder.paymentStatus = 'pending';
@@ -500,6 +504,11 @@ export const addItemsToOrder = async (req, res) => {
       // Pay Now: require payment for new items
       // Payment will be handled separately by frontend
       existingOrder.paymentStatus = 'pending';
+    }
+
+    // If order was already delivered/cancelled, reset status to pending for new items
+    if (existingOrder.status === 'delivered' || existingOrder.status === 'cancelled') {
+      existingOrder.status = 'pending';
     }
 
     await existingOrder.save();
@@ -522,7 +531,8 @@ export const addItemsToOrder = async (req, res) => {
       message: 'Items added to order successfully',
       order: populatedOrder,
       requiresPayment: existingOrder.paymentType === 'pay_now', // Frontend needs to handle payment
-      newItemsTotal: newItemsTotalWithFees,
+      newItemsTotal: newItemsTotal, // Only new items + tax, no delivery fee
+      newItemsSubtotal: newItemsSubtotal,
     });
   } catch (error) {
     console.error('Error adding items to order:', error);
