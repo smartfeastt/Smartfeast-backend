@@ -9,6 +9,7 @@ import categoryRoutes from "./routes/category.routes.js";
 import cartRoutes from "./routes/cart.routes.js";
 import orderRoutes from "./routes/order.routes.js";
 import favoriteRoutes from "./routes/favorite.routes.js";
+import inventoryRoutes from "./routes/inventory.routes.js";
 import supabaseRoutes from "./routes/supabase.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import supabase from './config/supabase.config.js';
@@ -43,6 +44,7 @@ app.use("/api/category", categoryRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/order", orderRoutes);
 app.use("/api/favorite", favoriteRoutes);
+app.use("/api/inventory", inventoryRoutes);
 app.use("/api/supabase", supabaseRoutes);
 app.use("/api/upload", uploadRoutes);
 
@@ -80,9 +82,11 @@ app.get('/api/supabase', async (req, res) => {
       return res.status(400).json({ error });
     }
 
+    // extract only emails
+    const emails = data.users.map(user => user.email);
+
     return res.json({
-      message: "Supabase response",
-      users: data
+      emails
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
